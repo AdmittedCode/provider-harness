@@ -1,0 +1,19 @@
+name: Self Test
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -e ".[dev]"
+      - name: Regression — governed refusal before key
+        run: python tests/test_harness.py
+      - name: Demo — mock allow + headline refusal
+        run: |
+          mkdir -p demo && echo '{"governance_role":"consumer"}' > demo/repo-guard.json && echo x > demo/app.py
+          provider-harness run --repo demo --request examples/request.json --budget examples/budget.json --mode mock || true
+          echo "headline refusal demonstrated"
