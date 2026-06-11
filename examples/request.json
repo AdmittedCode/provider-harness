@@ -1,0 +1,1 @@
+{"provider":"openai","model":"gpt-x","purpose":"summarize_readme","output_schema":"summary.v1","estimated_cost_microdollars":500,"gcat_bcat":{"g":5,"c":5,"a":2,"t":5}}
