@@ -1,5 +1,5 @@
 """
-M0-M2 regression guard for the AI Provider Governance Harness.
+M0-M3 regression guard for the AI Provider Governance Harness.
 Runtime-built fixtures (immune to packaging path-stripping).
 Headline test: a refused request never reaches the key, and emits a denial receipt.
 """
@@ -71,6 +71,66 @@ def test_receipt_has_scope_disclaimer_and_no_secret():
         assert len(o.receipt["scope"]["does_not_assert"]) > 0
         blob = json.dumps(o.receipt).lower()
         assert "api_key" not in blob and "secret" not in blob
+
+# ---- M3: replay (appended) ----
+import tempfile as _tf
+from provider_harness import core as _core
+from provider_harness.replay import admissibility_fingerprint as _fp
+
+def _repo_in(root):
+    r = root / "repo"; r.mkdir(parents=True, exist_ok=True)
+    (r/"repo-guard.json").write_text(json.dumps({"governance_role":"consumer"}))
+    (r/"app.py").write_text("x=1\n"); return r
+
+def test_m3_replay_hit_no_key():
+    with _tf.TemporaryDirectory() as d:
+        repo=_repo_in(pathlib.Path(d)); cache=_core.configure_replay(pathlib.Path(d)/"c.json")
+        cache.put(_fp(_req(),_consent(),_budget()), {"response":{"t":"x"}}, "ALLOW")
+        o=_core.run_preflight(repo,_req(),_consent(),_budget(),mode="replay")
+        assert o.decision=="ALLOW" and o.key_requested is False and o.receipt["replay"]["hit"] is True
+
+def test_m3_staleness_guard_consent_withdrawn():
+    with _tf.TemporaryDirectory() as d:
+        repo=_repo_in(pathlib.Path(d)); cache=_core.configure_replay(pathlib.Path(d)/"c.json")
+        cache.put(_fp(_req(),_consent(),_budget()), {"response":{"t":"x"}}, "ALLOW")
+        o=_core.run_preflight(repo,_req(),None,_budget(),mode="replay")  # consent gone
+        assert o.decision=="DENY", o.decision
+        assert not any(g.gate=="replay" for g in o.gates), "stale ALLOW must not reach replay"
+
+def test_m3_replay_miss_fails_closed():
+    with _tf.TemporaryDirectory() as d:
+        repo=_repo_in(pathlib.Path(d)); _core.configure_replay(pathlib.Path(d)/"empty.json")
+        o=_core.run_preflight(repo,_req(),_consent(),_budget(),mode="replay")
+        assert o.decision=="FAIL_CLOSED" and o.key_requested is False and o.receipt["replay"]["hit"] is False
+
+def test_m3_cache_sanitizes_secrets():
+    with _tf.TemporaryDirectory() as d:
+        cache=_core.configure_replay(pathlib.Path(d)/"c.json")
+        cache.put(_fp(_req(),_consent(),_budget()), {"response":{"t":"x"},"api_key":"LEAK","token":"L2"}, "ALLOW")
+        blob=(pathlib.Path(d)/"c.json").read_text().lower()
+        assert "leak" not in blob and "api_key" not in blob
+
+def test_m3_non_allow_not_cached():
+    with _tf.TemporaryDirectory() as d:
+        cache=_core.configure_replay(pathlib.Path(d)/"c.json")
+        cache.put("fp", {"response":{}}, "DENY")
+        assert cache.get("fp") is None
+
+
+def test_m3_cache_sanitizes_nested_secrets():
+    with _tf.TemporaryDirectory() as d:
+        cache=_core.configure_replay(pathlib.Path(d)/"c.json")
+        cache.put(_fp(_req(),_consent(),_budget()), {
+            "response":{"nested":{"authorization":"Bearer LEAK","safe":"ok"},"items":[{"client_secret":"S2","safe":1}]}
+        }, "ALLOW")
+        blob=(pathlib.Path(d)/"c.json").read_text().lower()
+        assert "leak" not in blob and "authorization" not in blob and "client_secret" not in blob
+        assert "safe" in blob
+
+def test_m3_fingerprint_binds_declared_input_scope():
+    r1=_req(input_scope={"prompt_hash":"sha256:one"})
+    r2=_req(input_scope={"prompt_hash":"sha256:two"})
+    assert _fp(r1,_consent(),_budget()) != _fp(r2,_consent(),_budget())
 
 if __name__ == "__main__":
     import traceback
