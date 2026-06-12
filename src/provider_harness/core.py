@@ -1,18 +1,18 @@
 """
-AI Provider Governance Harness — M0–M2 core orchestrator.
+AI Provider Governance Harness — M0–M3 core orchestrator.
 
 Demonstrates governed, opt-in AI provider access: a paid provider call may
 proceed ONLY after deterministic local checks, consent, budget, and admissibility
 all pass. The headline demonstration is a CORRECT REFUSAL — a request denied
 before the API key is ever requested, with a denial receipt as evidence.
 
-Scope of this build (M0–M2): mock mode, preflight, deterministic governance gates,
-and receipt emission. No live adapters, no live secrets, no StegCGE dependency.
+Scope of this build (M0–M3): mock mode, preflight, deterministic governance gates,
+receipt emission, and replay. No live adapters, no live secrets, no StegCGE dependency.
 Enforcement here is adapter-bound (marked as such in every receipt).
 
 Doctrine: API_KEY access is execution, not analysis. Nothing in this module
 touches, requests, or references a real API key. The key is only ever reached
-AFTER admissibility passes — and in M0–M2 that path is mock, so it never is.
+AFTER admissibility passes — and in M0–M3 that path is mock/replay, so it never is.
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from .canon import hash_obj, hash_repo_state
+from .replay import admissibility_fingerprint, ReplayCache
 
 
 # ---- gate result model ----------------------------------------------------
@@ -40,6 +41,16 @@ class HarnessOutcome:
     key_requested: bool                # the headline fact: was the key ever reached?
     gates: List[GateResult]
     receipt: Dict[str, Any]
+
+
+_replay_cache = None  # set via configure_replay() before a replay-mode run
+
+
+def configure_replay(cache_path):
+    """Enable replay mode against an on-disk cache."""
+    global _replay_cache
+    _replay_cache = ReplayCache(cache_path)
+    return _replay_cache
 
 
 def now_utc() -> str:
@@ -73,7 +84,7 @@ def run_preflight(
 ) -> HarnessOutcome:
     """
     Run the governed preflight chain. Returns an outcome whose most important
-    field is `key_requested` — which in M0–M2 must be False on every path,
+    field is `key_requested` — which in M0–M3 must be False on every path,
     because no live adapter exists. A DENY here is the headline: refused before
     key access.
     """
@@ -121,26 +132,43 @@ def run_preflight(
         return _finish(repo, request, gates, mode, decision="DENY", key_requested=False)
     gates.append(GateResult("gcat_bcat", "PASS", "a <= min(g,c,t)", ev))
 
-    # 5. all deterministic gates passed. In M0-M2, mode dictates what happens
+    # 5. all deterministic gates passed. In M0-M3, mode dictates what happens
     #    next — but NONE of these paths request a live key.
     if mode == "mock":
         gates.append(GateResult("execution", "PASS", "mock mode: deterministic fixture, no key, no call", {"mode": "mock"}))
         return _finish(repo, request, gates, mode, decision="ALLOW", key_requested=False)
     if mode == "replay":
-        gates.append(GateResult("execution", "PASS", "replay mode: cached response, no key, no call", {"mode": "replay"}))
-        return _finish(repo, request, gates, mode, decision="ALLOW", key_requested=False)
-    # live mode is out of scope for M0-M2 — fail closed rather than reach a key
+        # Reached only AFTER all governance gates passed above — so the current
+        # request is admissible NOW. Replay then checks for a governance-equivalent
+        # cached entry. A stale ALLOW cannot be laundered: if governance had
+        # changed, we would have DENY'd before reaching this branch.
+        fp = admissibility_fingerprint(request, consent, budget)
+        cached = _replay_cache.get(fp) if _replay_cache is not None else None
+        if cached:
+            gates.append(GateResult("replay", "PASS",
+                                    "governance-equivalent cached response replayed; no key, no call",
+                                    {"fingerprint": fp, "recorded_utc": cached.get("recorded_utc")}))
+            return _finish(repo, request, gates, mode, decision="ALLOW", key_requested=False,
+                           replay={"hit": True, "fingerprint": fp})
+        # cache miss: admissible, but nothing to replay. In M0-M2 there is no live
+        # adapter to populate the cache, so a miss fails closed rather than reaching a key.
+        gates.append(GateResult("replay", "FAIL_CLOSED",
+                                "no cached response for this fingerprint; live fetch unavailable in this build",
+                                {"fingerprint": fp}))
+        return _finish(repo, request, gates, mode, decision="FAIL_CLOSED", key_requested=False,
+                       replay={"hit": False, "fingerprint": fp})
+    # live mode is out of scope for M0-M3 — fail closed rather than reach a key
     gates.append(GateResult("execution", "FAIL_CLOSED",
-                            "live mode not available in this build (M0-M2); key access withheld", {"mode": mode}))
+                            "live mode not available in this build (M0-M3); key access withheld", {"mode": mode}))
     return _finish(repo, request, gates, mode, decision="FAIL_CLOSED", key_requested=False)
 
 
-def _finish(repo, request, gates, mode, *, decision, key_requested) -> HarnessOutcome:
-    receipt = _build_receipt(repo, request, gates, mode, decision, key_requested)
+def _finish(repo, request, gates, mode, *, decision, key_requested, replay=None) -> HarnessOutcome:
+    receipt = _build_receipt(repo, request, gates, mode, decision, key_requested, replay)
     return HarnessOutcome(decision=decision, key_requested=key_requested, gates=gates, receipt=receipt)
 
 
-def _build_receipt(repo, request, gates, mode, decision, key_requested) -> Dict[str, Any]:
+def _build_receipt(repo, request, gates, mode, decision, key_requested, replay=None) -> Dict[str, Any]:
     state_hash = hash_repo_state(repo) if repo and pathlib.Path(repo).exists() else "sha256:NO_REPO"
     body = {
         "schema": "stegverse.provider_harness_receipt.v1",
@@ -148,12 +176,13 @@ def _build_receipt(repo, request, gates, mode, decision, key_requested) -> Dict[
         "mode": mode,
         "decision": decision,
         "key_requested": key_requested,
+        "replay": replay or {"hit": False},
         "provider": request.get("provider"),
         "model": request.get("model"),
         "purpose": request.get("purpose"),
         "input_state_hash": state_hash,
         "gates": [{"gate": g.gate, "decision": g.decision, "detail": g.detail} for g in gates],
-        "enforcement": {"manager": "adapter-bound", "note": "StegCGE not integrated in M0-M2"},
+        "enforcement": {"manager": "adapter-bound", "note": "StegCGE not integrated in M0-M3"},
         "scope": {
             "asserts": [
                 "The declared provider request was evaluated under the declared governance path.",
