@@ -24,7 +24,7 @@ of reaching a key (verified at the AST level — it imports no secret store, no
 evaluation. The key is reached only after admissibility passes — and in M0–M3
 that path is mock/replay, so it never is.
 
-## Run it
+## Use
 
 ```bash
 # full governance passes (mock allow, no key touched)
@@ -39,6 +39,31 @@ provider-harness run --repo . --request examples/request.json \
 provider-harness run --repo . --request examples/request.json \
   --consent examples/consent.json --budget examples/budget.json --mode replay \
   --cache .provider-cache/replay.json
+```
+
+## Usage Snippet
+
+Provider Harness is runnable in M0–M3 without any provider API key.
+
+```bash
+python -m pip install -e .
+python -m pytest
+provider-harness run \
+  --repo . \
+  --request examples/request.json \
+  --consent examples/consent.json \
+  --budget examples/budget.json \
+  --mode mock \
+  --receipt receipts/mock-allow.json
+```
+
+The headline behavior is refusal before key access. A missing consent, exceeded budget, or failed GCAT/BCAT gate emits a receipt with `key_requested: false`.
+
+See:
+
+```text
+docs/USAGE.md
+docs/HARNESS_GOVERNANCE_CONTRACT.md
 ```
 
 ## The gates (each can refuse before the key)
