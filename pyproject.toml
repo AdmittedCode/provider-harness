@@ -3,8 +3,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "provider-harness"
-version = "0.1.0"
-description = "AI Provider Governance Harness (M0-M2): governed, opt-in provider access. A paid call proceeds only after deterministic checks, consent, budget, and GCAT/BCAT admissibility. Headline: correct refusal before the key is ever requested."
+version = "0.2.0"
+description = "AI Provider Governance Harness (M0-M3): governed, opt-in provider access. A paid call proceeds only after deterministic checks, consent, budget, GCAT/BCAT admissibility, and replay/cache checks. Headline: correct refusal before the key is ever requested."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }

@@ -11,9 +11,9 @@ API key is ever requested, with a denial receipt as evidence.**
 > No hidden calls. No silent keys. No unbounded cost. No broad authority.
 > No execution without receipt.
 
-## Scope of this build (M0–M2)
+## Scope of this build (M0–M3)
 
-Mock + preflight + deterministic governance gates + receipts. **No live adapters,
+Mock + preflight + deterministic governance gates + receipts + replay. **No live adapters,
 no live secrets, no network calls.** The mock adapter is *structurally* incapable
 of reaching a key (verified at the AST level — it imports no secret store, no
 `os.environ`, no network library). Live mode fails closed in this build.
@@ -21,8 +21,8 @@ of reaching a key (verified at the AST level — it imports no secret store, no
 ## Doctrine
 
 `API_KEY access is execution, not analysis.` Nothing here touches a key during
-evaluation. The key is reached only after admissibility passes — and in M0–M2
-that path is mock, so it never is.
+evaluation. The key is reached only after admissibility passes — and in M0–M3
+that path is mock/replay, so it never is.
 
 ## Run it
 
@@ -34,6 +34,11 @@ provider-harness run --repo . --request examples/request.json \
 # headline: withdraw consent -> refused before key, denial receipt emitted
 provider-harness run --repo . --request examples/request.json \
   --budget examples/budget.json --mode mock
+
+# replay with a declared cache path; cache hit reuses governed response, no key touched
+provider-harness run --repo . --request examples/request.json \
+  --consent examples/consent.json --budget examples/budget.json --mode replay \
+  --cache .provider-cache/replay.json
 ```
 
 ## The gates (each can refuse before the key)
@@ -61,7 +66,8 @@ evaluated under the declared governance path.
 
 ## Roadmap
 
-M0–M2 (this build): mock, preflight, governance gates, receipts.
+M0–M3 (this build): mock, preflight, governance gates, receipts, and replay
+(governance-bound cache; stale ALLOWs cannot be laundered).
 M4–M5: live OpenAI/Anthropic adapters (TV/TVC secret-ref gated).
 M6: StegCGE routing. M7: full public demonstration.
 
