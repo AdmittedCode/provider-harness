@@ -1,6 +1,8 @@
 __pycache__/
-*.egg-info/
-build/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
 dist/
-receipts/*.json
-.provider-cache/
+build/
+*.egg-info/
