@@ -58,6 +58,16 @@ This harness is the reference implementation showing the AdmittedCode line worki
 together: Repo Guard (structure), Coherency Scanner (governance posture), and the
 Admissibility Receipt (proof envelope), in service of governed provider access.
 
+## Harness Governance Contract
+
+The provider harness separates routing from governance.
+
+Routers decide which execution path to attempt and how to execute it. The governance gate decides whether a proposed path is admissible and emits a receipt.
+
+This boundary allows local CLIs, CI workflows, hosted services, provider routers, batch routers, and future metering layers to attach to the harness without sharing implementation code.
+
+See: `docs/HARNESS_GOVERNANCE_CONTRACT.md`
+
 ## Scope (what a receipt does NOT assert)
 
 Provider security/privacy/compliance, correctness or fitness of model output, or
